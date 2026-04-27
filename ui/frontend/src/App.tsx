@@ -2,7 +2,7 @@ import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEf
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-type Role = 'user' | 'agent' | 'system' | 'status'
+type Role = 'user' | 'agent' | 'system' | 'status' | 'reasoning'
 
 type ChatMessage = {
   id: string
@@ -12,6 +12,7 @@ type ChatMessage = {
   widgets?: WidgetFrame[]
   streamPos: number
   done: boolean
+  collapsed?: boolean
 }
 
 type WidgetPayload = Record<string, unknown>
@@ -21,6 +22,13 @@ type WidgetFrame = {
     version?: number
     payload: WidgetPayload
   }
+}
+
+type MessagePayload = {
+  type: 'message'
+  user: string
+  text: string
+  widgets: WidgetFrame[]
 }
 
 const LIST_WITH_SUBTITLES_WIDGET: WidgetPayload = {
@@ -189,8 +197,8 @@ const OPERATIONS_BY_MERCHANT_WITHOUT_TOGGLE_WIDGET: WidgetPayload = {
 }
 
 type ChatPayload =
-  | { type: 'message'; user: string; text: string; suggestions: string[]; widget?: WidgetFrame }
-  | { type: 'think'; text: string }
+  | MessagePayload
+  | { type: 'think'; title: string; content: string }
   | { type: 'status'; text: string }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -200,6 +208,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function normalizeWidgetName(name: string): string {
   if (name === 'List widget' || name === 'ListWidget' || name === 'ListView') return 'list_view'
   if (name === 'BarChart' || name === 'BarChartWidget' || name === 'bar_chart_widget') return 'bar_chart'
+  if (name === 'SuggestionButtonList' || name === 'SuggestionButtonListWidget') return 'suggestion_button_list'
   if (name === 'OperationsByMerchant' || name === 'OperationsByMerchantWidget' || name === 'operations_by_merchant') {
     return 'operations_by_merchant'
   }
@@ -269,25 +278,59 @@ function toWidgetFrame(value: unknown): WidgetFrame | undefined {
   return undefined
 }
 
+function toWidgetFrames(value: unknown): WidgetFrame[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((rawWidget) => {
+    const widget = toWidgetFrame(rawWidget)
+    return widget ? [widget] : []
+  })
+}
+
+function suggestionsToWidget(suggestions: string[]): WidgetFrame | undefined {
+  if (suggestions.length === 0) return undefined
+  return {
+    name: 'suggestion_button_list',
+    arguments: {
+      payload: {
+        buttonList: suggestions.map((text) => ({ text })),
+      },
+    },
+  }
+}
+
 function parseChatFrame(raw: string): ChatPayload {
   try {
     const j = JSON.parse(raw) as Record<string, unknown>
     if (j.type === 'status' && typeof j.text === 'string') {
       return { type: 'status', text: j.text }
     }
-    if (j.type === 'think' && typeof j.text === 'string') {
-      return { type: 'think', text: j.text }
+    if (j.type === 'think') {
+      const content = typeof j.content === 'string' ? j.content : typeof j.text === 'string' ? j.text : ''
+      if (content) {
+        const title = typeof j.title === 'string' ? j.title : typeof j.titile === 'string' ? j.titile : 'Reasoning'
+        return {
+          type: 'think',
+          title: title.trim() ? title : 'Reasoning',
+          content,
+        }
+      }
     }
     if (j.type === 'message' && typeof j.user === 'string' && typeof j.text === 'string') {
       const suggestions = Array.isArray(j.suggestions)
         ? (j.suggestions as unknown[]).filter((x): x is string => typeof x === 'string')
         : []
       const widget = toWidgetFrame(j.widget)
-      return { type: 'message', user: j.user, text: j.text, suggestions, widget }
+      const suggestionWidget = suggestionsToWidget(suggestions)
+      const widgets = [
+        ...toWidgetFrames(j.widgets),
+        ...(widget ? [widget] : []),
+        ...(suggestionWidget ? [suggestionWidget] : []),
+      ]
+      return { type: 'message', user: j.user, text: j.text, widgets }
     }
     const widget = toWidgetFrame(j)
     if (widget) {
-      return { type: 'message', user: 'Agent', text: '', suggestions: [], widget }
+      return { type: 'message', user: 'Agent', text: '', widgets: [widget] }
     }
   } catch {
     /* legacy */
@@ -302,10 +345,10 @@ function parseChatFrame(raw: string): ChatPayload {
       type: 'message',
       user: raw.slice(0, colon).trim(),
       text: raw.slice(colon + 1).trim(),
-      suggestions: [],
+      widgets: [],
     }
   }
-  return { type: 'message', user: 'System', text: raw, suggestions: [] }
+  return { type: 'message', user: 'System', text: raw, widgets: [] }
 }
 
 function toStatusLines(text: string): string[] {
@@ -338,6 +381,19 @@ function appendWidgetToLastAgent(messages: ChatMessage[], widget: WidgetFrame): 
     widgets: [...(target.widgets ?? []), widget],
   }
   return next
+}
+
+function collapseReasoningMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((message) =>
+    message.role === 'reasoning' && !message.collapsed
+      ? {
+          ...message,
+          streamPos: message.body.length,
+          done: true,
+          collapsed: true,
+        }
+      : message,
+  )
 }
 
 let idCounter = 0
@@ -858,6 +914,30 @@ function BarChart({ payload }: { payload: WidgetPayload }) {
   )
 }
 
+function SuggestionButtonList({ payload, onAction }: { payload: WidgetPayload; onAction?: (text: string) => void }) {
+  const buttons = Array.isArray(payload.buttonList)
+    ? payload.buttonList.flatMap((rawButton, index) => {
+        if (!isRecord(rawButton)) return []
+        const text = stringFromUnknown(rawButton.text)
+        return text ? [{ key: `${text}-${index}`, text }] : []
+      })
+    : []
+
+  if (buttons.length === 0) return null
+
+  return (
+    <section className="suggestion-button-list" aria-label="Спросить ещё">
+      <div className="suggest-scroll">
+        {buttons.map((button) => (
+          <button key={button.key} type="button" className="suggest-chip" onClick={() => onAction?.(button.text)}>
+            {button.text}
+          </button>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function WidgetRenderer({ widget, onAction }: { widget: WidgetFrame; onAction?: (text: string) => void }) {
   switch (widget.name) {
     case 'list_view':
@@ -868,6 +948,8 @@ function WidgetRenderer({ widget, onAction }: { widget: WidgetFrame; onAction?: 
       return <OperationList payload={widget.arguments.payload} />
     case 'bar_chart':
       return <BarChart payload={widget.arguments.payload} />
+    case 'suggestion_button_list':
+      return <SuggestionButtonList payload={widget.arguments.payload} onAction={onAction} />
     default:
       return (
         <section className="list-widget" aria-label="Неподдерживаемый виджет">
@@ -888,7 +970,6 @@ export default function App() {
   const [uiTheme, setUiTheme] = useState<UiTheme>(() => readStoredTheme())
 
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [suggestions, setSuggestions] = useState<string[]>([])
   const [input, setInput] = useState('')
   const [chatConnected, setChatConnected] = useState(false)
   const [tokens, setTokens] = useState<TokenStats>({
@@ -950,7 +1031,6 @@ export default function App() {
   }, [])
 
   const appendUserMessage = useCallback((text: string) => {
-    setSuggestions([])
     setMessages((prev) => [
       ...prev,
       {
@@ -967,7 +1047,28 @@ export default function App() {
   const handleIncoming = useCallback(
     (raw: string) => {
       const payload = parseChatFrame(raw)
-      if (payload.type === 'think' || payload.type === 'status') {
+      if (payload.type === 'think') {
+        const title = payload.title.trim() || 'Reasoning'
+        const content = payload.content.trim()
+        if (!content) return
+        setMessages((prev) => {
+          const withCollapsedReasoning = collapseReasoningMessages(prev)
+          return [
+            ...withCollapsedReasoning,
+            {
+              id: nextId(),
+              role: 'reasoning',
+              label: title,
+              body: content,
+              streamPos: 0,
+              done: false,
+              collapsed: false,
+            },
+          ]
+        })
+        return
+      }
+      if (payload.type === 'status') {
         const statusLines = toStatusLines(payload.text)
         if (statusLines.length === 0) return
         setMessages((prev) => {
@@ -999,11 +1100,10 @@ export default function App() {
         appendUserMessage(payload.text)
         return
       }
-      const sug = payload.suggestions ?? []
       setMessages((prev) => {
-        const withoutStatuses = prev.filter((message) => message.role !== 'status')
-        if (payload.widget && payload.text.trim() === '') {
-          const withAttachedWidget = appendWidgetToLastAgent(withoutStatuses, payload.widget)
+        const withoutStatuses = collapseReasoningMessages(prev).filter((message) => message.role !== 'status')
+        if (payload.widgets.length === 1 && payload.text.trim() === '') {
+          const withAttachedWidget = appendWidgetToLastAgent(withoutStatuses, payload.widgets[0])
           if (withAttachedWidget) return withAttachedWidget
         }
         return [
@@ -1013,13 +1113,12 @@ export default function App() {
             role,
             label: payload.user,
             body: payload.text,
-            widgets: payload.widget ? [payload.widget] : undefined,
+            widgets: payload.widgets.length ? payload.widgets : undefined,
             streamPos: 0,
             done: payload.text.length === 0,
           },
         ]
       })
-      setSuggestions(sug.length ? sug : [])
     },
     [appendUserMessage],
   )
@@ -1085,16 +1184,6 @@ export default function App() {
     chatRef.current.send(text)
     setInput('')
   }, [input, appendUserMessage])
-
-  const sendSuggest = useCallback(
-    (text: string) => {
-      if (!chatRef.current || chatRef.current.readyState !== WebSocket.OPEN) return
-      appendUserMessage(text)
-      chatRef.current.send(text)
-      setSuggestions([])
-    },
-    [appendUserMessage],
-  )
 
   const sendWidgetAction = useCallback(
     (text: string) => {
@@ -1218,7 +1307,7 @@ export default function App() {
 
               <div className="messages" ref={messagesScrollRef}>
                 {messages.map((m) => (
-                  <div key={m.id} className={`bubble ${m.role}`}>
+                  <div key={m.id} className={`bubble ${m.role}${m.role === 'reasoning' && m.collapsed ? ' collapsed' : ''}`}>
                     {m.role === 'status' ? (
                       <>
                         <div className={`status-line${m.done ? ' done' : ' loading'}`}>
@@ -1228,6 +1317,21 @@ export default function App() {
                           <span className="status-text">{m.body}</span>
                         </div>
                       </>
+                    ) : m.role === 'reasoning' ? (
+                      m.collapsed ? (
+                        <div className="reasoning-collapsed">
+                          <span className="reasoning-collapsed-check" aria-hidden>✓</span>
+                          <span className="reasoning-collapsed-title">{m.label}</span>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="reasoning-label">
+                            <span>{m.label}</span>
+                            <span className="reasoning-shimmer" aria-hidden />
+                          </div>
+                          <div className="reasoning-text">{m.body.slice(0, m.streamPos)}</div>
+                        </>
+                      )
                     ) : (
                       <>
                         <div className="bubble-meta">{m.label}</div>
@@ -1244,19 +1348,6 @@ export default function App() {
                   </div>
                 ))}
               </div>
-
-              {suggestions.length > 0 ? (
-                <div className="suggest-strip">
-                  <h3>Спросить ещё</h3>
-                  <div className="suggest-scroll">
-                    {suggestions.map((s) => (
-                      <button key={s} type="button" className="suggest-chip" onClick={() => sendSuggest(s)}>
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
 
               <div className="input-row">
                 <input

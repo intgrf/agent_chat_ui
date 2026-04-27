@@ -39,6 +39,12 @@ function buildSuggestions() {
   return ['Показать виджеты', 'Сделай ответ короче', 'Добавь больше деталей', 'Покажи пример JSON ответа']
 }
 
+function buildSuggestionWidget() {
+  return buildWidget('suggestion_button_list', {
+    buttonList: buildSuggestions().map((text) => ({ text })),
+  })
+}
+
 const LIST_VIEW_WIDGET = {
   title: 'Инвестиционные продукты',
   items: [
@@ -177,8 +183,7 @@ function sendWidgetPreview(ws) {
         type: 'message',
         user: 'Agent',
         text: demo.text,
-        suggestions: buildSuggestions(),
-        widget: demo.widget,
+        widgets: [demo.widget, buildSuggestionWidget()],
       })
     }, index * 450)
   })
@@ -225,7 +230,7 @@ chatWss.on('connection', (ws, req) => {
         type: 'message',
         user: 'Agent',
         text: buildAgentMessage(userText),
-        suggestions: buildSuggestions(),
+        widget: buildSuggestionWidget(),
       })
 
       // UI забирает статистику токенов из логов по ключу "llm"

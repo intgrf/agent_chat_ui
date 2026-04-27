@@ -59,6 +59,8 @@ class ChatLogger:
             "OperationList": "operation_list_widget",
             "OperationList": "operation_list_widget",
             "operation_list_widget": "operation_list_widget",
+            "SuggestionButtonList": "suggestion_button_list",
+            "suggestion_button_list": "suggestion_button_list",
         }
         return aliases.get(name, name)
 
@@ -86,6 +88,17 @@ class ChatLogger:
             },
         }
 
+    @staticmethod
+    def _suggestions_to_widget(suggestions: Sequence[str]) -> dict[str, Any]:
+        return {
+            "name": "suggestion_button_list",
+            "arguments": {
+                "payload": {
+                    "buttonList": [{"text": text} for text in suggestions],
+                },
+            },
+        }
+
     def message(
         self,
         username: str,
@@ -101,10 +114,16 @@ class ChatLogger:
             "type": "message",
             "user": username,
             "text": msg,
-            "suggestions": list(suggestions) if suggestions else [],
         }
+        widgets: list[dict[str, Any]] = []
         if widget is not None:
-            message_payload["widget"] = self._normalize_widget(widget)
+            widgets.append(self._normalize_widget(widget))
+        if suggestions:
+            widgets.append(self._suggestions_to_widget(list(suggestions)))
+        if len(widgets) == 1:
+            message_payload["widget"] = widgets[0]
+        elif len(widgets) > 1:
+            message_payload["widgets"] = widgets
 
         payload = json.dumps(
             message_payload,
@@ -131,13 +150,19 @@ class ChatLogger:
         """Отправляет UI-виджет. Принимает новый envelope или legacy payload ListView."""
         self.message(username=username, msg=msg, suggestions=suggestions, widget=payload)
 
-    def think(self, text: str):
+    def think(self, text: str = "", title: str = "Reasoning", content: Optional[str] = None):
         """Текст «размышления» для UI (reasoning), отдельно от основного ответа."""
         if not self._check_handler():
             return
 
+        reasoning_content = text if content is None else content
         payload = json.dumps(
-            {"type": "think", "text": text},
+            {
+                "type": "think",
+                "title": title,
+                "content": reasoning_content,
+                "text": reasoning_content,
+            },
             ensure_ascii=False,
         )
         record = self._logger.makeRecord(
