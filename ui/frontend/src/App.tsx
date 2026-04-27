@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -137,6 +137,17 @@ const OPERATION_LIST_WIDGET: WidgetPayload = {
   ],
 }
 
+const BAR_CHART_WIDGET: WidgetPayload = {
+  content: [
+    { amount: '104 340', month: 'март' },
+    { amount: '56 041', month: 'апр' },
+    { amount: '0', month: 'май' },
+    { amount: '24 399', month: 'июнь' },
+    { amount: '35 340', month: 'июль' },
+    { amount: '63 340', month: 'авг' },
+  ],
+}
+
 type ChatPayload =
   | { type: 'message'; user: string; text: string; suggestions: string[]; widget?: WidgetFrame }
   | { type: 'think'; text: string }
@@ -148,6 +159,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function normalizeWidgetName(name: string): string {
   if (name === 'List widget' || name === 'ListWidget' || name === 'ListView') return 'list_view'
+  if (name === 'BarChart' || name === 'BarChartWidget' || name === 'bar_chart_widget') return 'bar_chart'
   if (
     name === 'OperationList' ||
     name === 'OperationList' ||
@@ -187,6 +199,15 @@ function toWidgetFrame(value: unknown): WidgetFrame | undefined {
   if (Array.isArray(value.operations)) {
     return {
       name: 'operation_list_widget',
+      arguments: {
+        payload: value,
+      },
+    }
+  }
+
+  if (Array.isArray(value.content)) {
+    return {
+      name: 'bar_chart',
       arguments: {
         payload: value,
       },
@@ -617,12 +638,92 @@ function OperationList({ payload }: { payload: WidgetPayload }) {
   )
 }
 
+type BarChartItem = {
+  key: string
+  label: string
+  value: number
+  displayValue: string
+}
+
+function numberFromUnknown(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value !== 'string') return undefined
+
+  const cleaned = value
+    .replace(/\s/g, '')
+    .replace(/,/g, '.')
+    .replace(/[^\d.-]/g, '')
+  const parsed = Number(cleaned)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function toBarChartItems(payload: WidgetPayload): BarChartItem[] {
+  if (!Array.isArray(payload.content)) return []
+
+  return payload.content.flatMap((rawItem, index) => {
+    if (!isRecord(rawItem)) return []
+
+    const label = stringFromUnknown(rawItem.month) ?? stringFromUnknown(rawItem.label) ?? stringFromUnknown(rawItem.title)
+    const rawValue = rawItem.amount ?? rawItem.value
+    const value = numberFromUnknown(rawValue)
+    if (!label || value === undefined) return []
+
+    return [
+      {
+        key: `${label}-${index}`,
+        label,
+        value,
+        displayValue: stringFromUnknown(rawValue) ?? String(value),
+      },
+    ]
+  })
+}
+
+function BarChart({ payload }: { payload: WidgetPayload }) {
+  const title = stringFromUnknown(payload.title)
+  const subtitle = stringFromUnknown(payload.subtitle)
+  const items = toBarChartItems(payload)
+  const maxValue = Math.max(...items.map((item) => Math.max(item.value, 0)), 0)
+
+  return (
+    <section className="list-widget bar-chart-widget" aria-label={title ?? 'Bar chart'}>
+      {title || subtitle ? (
+        <div className="list-widget-head">
+          {title ? <h3 className="list-widget-title">{title}</h3> : null}
+          {subtitle ? <p className="list-widget-subtitle">{subtitle}</p> : null}
+        </div>
+      ) : null}
+      {items.length > 0 ? (
+        <div className="bar-chart" role="img" aria-label={title ?? 'Значения по месяцам'}>
+          {items.map((item) => {
+            const height = maxValue > 0 && item.value > 0 ? Math.max((item.value / maxValue) * 100, 4) : 0
+
+            return (
+              <div key={item.key} className="bar-chart-item">
+                <span className="bar-chart-track" style={{ '--bar-height': `${height}%` } as CSSProperties} aria-hidden>
+                  <span className="bar-chart-value">{item.displayValue}</span>
+                  <span className="bar-chart-bar" />
+                </span>
+                <span className="bar-chart-label">{item.label}</span>
+              </div>
+            )
+          })}
+        </div>
+      ) : (
+        <p className="bar-chart-empty">Нет данных для графика</p>
+      )}
+    </section>
+  )
+}
+
 function WidgetRenderer({ widget, onAction }: { widget: WidgetFrame; onAction?: (text: string) => void }) {
   switch (widget.name) {
     case 'list_view':
       return <ListView items={[]} payload={widget.arguments.payload} onAction={onAction} />
     case 'operation_list_widget':
       return <OperationList payload={widget.arguments.payload} />
+    case 'bar_chart':
+      return <BarChart payload={widget.arguments.payload} />
     default:
       return (
         <section className="list-widget" aria-label="Неподдерживаемый виджет">
@@ -935,6 +1036,17 @@ export default function App() {
               <button
                 type="button"
                 role="tab"
+                aria-label="Виджеты"
+                aria-selected={activeTab === 'widgets'}
+                title="Виджеты"
+                className={`page-toggle-btn${activeTab === 'widgets' ? ' active' : ''}`}
+                onClick={() => setActiveTab('widgets')}
+              >
+                <span aria-hidden>▦</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
                 aria-label="Настройки"
                 aria-selected={activeTab === 'settings'}
                 title="Настройки"
@@ -1094,6 +1206,13 @@ export default function App() {
             widget={{
               name: 'operation_list_widget',
               arguments: { version: 1, payload: OPERATION_LIST_WIDGET },
+            }}
+          />
+
+          <WidgetRenderer
+            widget={{
+              name: 'bar_chart',
+              arguments: { version: 1, payload: BAR_CHART_WIDGET },
             }}
           />
         </div>
