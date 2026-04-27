@@ -2,7 +2,7 @@ import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-type Role = 'user' | 'agent' | 'system' | 'reasoning'
+type Role = 'user' | 'agent' | 'system' | 'status'
 
 type ChatMessage = {
   id: string
@@ -140,6 +140,7 @@ const OPERATION_LIST_WIDGET: WidgetPayload = {
 type ChatPayload =
   | { type: 'message'; user: string; text: string; suggestions: string[]; widget?: WidgetFrame }
   | { type: 'think'; text: string }
+  | { type: 'status'; text: string }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -198,6 +199,9 @@ function toWidgetFrame(value: unknown): WidgetFrame | undefined {
 function parseChatFrame(raw: string): ChatPayload {
   try {
     const j = JSON.parse(raw) as Record<string, unknown>
+    if (j.type === 'status' && typeof j.text === 'string') {
+      return { type: 'status', text: j.text }
+    }
     if (j.type === 'think' && typeof j.text === 'string') {
       return { type: 'think', text: j.text }
     }
@@ -215,6 +219,10 @@ function parseChatFrame(raw: string): ChatPayload {
   } catch {
     /* legacy */
   }
+  const statusMatch = raw.match(/^\s*\[status\]\s*(.+)$/i)
+  if (statusMatch?.[1]) {
+    return { type: 'status', text: statusMatch[1].trim() }
+  }
   const colon = raw.indexOf(':')
   if (colon > 0) {
     return {
@@ -225,6 +233,13 @@ function parseChatFrame(raw: string): ChatPayload {
     }
   }
   return { type: 'message', user: 'System', text: raw, suggestions: [] }
+}
+
+function toStatusLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*\[status\]\s*/i, '').trim())
+    .filter(Boolean)
 }
 
 function roleFromUser(user: string): Role {
@@ -707,30 +722,29 @@ export default function App() {
   const handleIncoming = useCallback(
     (raw: string) => {
       const payload = parseChatFrame(raw)
-      if (payload.type === 'think') {
+      if (payload.type === 'think' || payload.type === 'status') {
+        const statusLines = toStatusLines(payload.text)
+        if (statusLines.length === 0) return
         setMessages((prev) => {
-          const last = prev[prev.length - 1]
-          if (last?.role === 'reasoning') {
-            return [
-              ...prev.slice(0, -1),
-              {
-                ...last,
-                body: payload.text,
-                streamPos: 0,
-                done: false,
-              },
-            ]
-          }
-          return [
-            ...prev,
-            {
+          const withCompletedStatuses = prev.map((message) =>
+            message.role === 'status' && !message.done
+              ? { ...message, streamPos: message.body.length, done: true }
+              : message,
+          )
+          const nextStatuses = statusLines.map((text, index) => {
+            const isLast = index === statusLines.length - 1
+            return {
               id: nextId(),
-              role: 'reasoning',
-              label: 'Reasoning',
-              body: payload.text,
-              streamPos: 0,
-              done: false,
-            },
+              role: 'status' as const,
+              label: 'Status',
+              body: text,
+              streamPos: text.length,
+              done: !isLast,
+            }
+          })
+          return [
+            ...withCompletedStatuses,
+            ...nextStatuses,
           ]
         })
         return
@@ -742,27 +756,13 @@ export default function App() {
       }
       const sug = payload.suggestions ?? []
       setMessages((prev) => {
-        const last = prev[prev.length - 1]
+        const withoutStatuses = prev.filter((message) => message.role !== 'status')
         if (payload.widget && payload.text.trim() === '') {
-          const withAttachedWidget = appendWidgetToLastAgent(prev, payload.widget)
+          const withAttachedWidget = appendWidgetToLastAgent(withoutStatuses, payload.widget)
           if (withAttachedWidget) return withAttachedWidget
         }
-        if (last?.role === 'reasoning') {
-          return [
-            ...prev.slice(0, -1),
-            {
-              id: last.id,
-              role,
-              label: payload.user,
-              body: payload.text,
-              widgets: payload.widget ? [payload.widget] : undefined,
-              streamPos: 0,
-              done: payload.text.length === 0,
-            },
-          ]
-        }
         return [
-          ...prev,
+          ...withoutStatuses,
           {
             id: nextId(),
             role,
@@ -968,13 +968,14 @@ export default function App() {
               <div className="messages" ref={messagesScrollRef}>
                 {messages.map((m) => (
                   <div key={m.id} className={`bubble ${m.role}`}>
-                    {m.role === 'reasoning' ? (
+                    {m.role === 'status' ? (
                       <>
-                        <div className="think-label">
-                          Reasoning
-                          <span className="think-shimmer" />
+                        <div className={`status-line${m.done ? ' done' : ' loading'}`}>
+                          <span className={`status-icon${m.done ? ' done' : ''}`} aria-hidden>
+                            {m.done ? '✓' : ''}
+                          </span>
+                          <span className="status-text">{m.body}</span>
                         </div>
-                        <div className="think-body">{m.body.slice(0, m.streamPos)}</div>
                       </>
                     ) : (
                       <>

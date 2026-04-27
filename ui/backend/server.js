@@ -22,13 +22,13 @@ function sendLog(line) {
   console.log(text)
 }
 
-function buildReasoning(userText) {
+function buildStatusSteps(userText) {
   const trimmed = userText.trim()
   return [
-    `Анализ запроса: "${trimmed}".`,
-    'Проверяю заглушки и подбираю формат ответа для UI.',
-    'Возвращаю тестовый ответ в формате think -> message.',
-  ].join('\n')
+    `Изучаю запрос: "${trimmed}".`,
+    'Проверяю доступные данные',
+    'Готовлю итоговый ответ',
+  ]
 }
 
 function buildAgentMessage(userText) {
@@ -147,6 +147,18 @@ function sendChatFrame(ws, frame) {
   safeSend(ws, JSON.stringify(frame))
 }
 
+function sendStatusSteps(ws, steps, stepDelay = 450) {
+  steps.forEach((text, index) => {
+    setTimeout(() => {
+      sendChatFrame(ws, {
+        type: 'status',
+        text,
+      })
+    }, index * stepDelay)
+  })
+  return steps.length * stepDelay
+}
+
 function sendWidgetPreview(ws) {
   const demos = [
     {
@@ -195,22 +207,18 @@ chatWss.on('connection', (ws, req) => {
     sendLog(`chat <= ${userText}`)
 
     if (isWidgetPreviewRequest(userText)) {
-      sendChatFrame(ws, {
-        type: 'think',
-        text: 'Готовлю демо поддерживаемых виджетов для отображения в чате.',
-      })
+      const statusDelay = sendStatusSteps(ws, [
+        'Готовлю демо поддерживаемых виджетов',
+        'Собираю payload для превью',
+      ])
       setTimeout(() => {
         sendWidgetPreview(ws)
         sendLog('chat => sent widget preview')
-      }, 500)
+      }, statusDelay + 200)
       return
     }
 
-    const thinkingText = buildReasoning(userText)
-    sendChatFrame(ws, {
-      type: 'think',
-      text: thinkingText,
-    })
+    const statusDelay = sendStatusSteps(ws, buildStatusSteps(userText))
 
     setTimeout(() => {
       sendChatFrame(ws, {
@@ -223,7 +231,7 @@ chatWss.on('connection', (ws, req) => {
       // UI забирает статистику токенов из логов по ключу "llm"
       sendLog(`llm ${JSON.stringify({ model_name: 'stub-model', prompt_tokens: 12, completion_tokens: 24, total_tokens: 36 })}`)
       sendLog(`chat => sent stub response for "${userText}"`)
-    }, 700)
+    }, statusDelay + 250)
   })
 
   ws.on('close', () => {
