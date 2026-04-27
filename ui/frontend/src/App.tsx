@@ -906,56 +906,51 @@ export default function App() {
             <span className="brand-title">Companion</span>
             <span className="brand-sub">Assistant</span>
           </div>
-          {showTokens ? (
-            <div className="token-pill">
-              <div>
-                Токены: <strong>{tokens.totalTokens.toLocaleString()}</strong>
+          <div className="header-actions">
+            {showTokens ? (
+              <div className="token-pill">
+                <div>
+                  Токены: <strong>{tokens.totalTokens.toLocaleString()}</strong>
+                </div>
+                <div>
+                  prompt {tokens.promptTokens} · completion {tokens.completionTokens}
+                </div>
+                <div>
+                  модель <strong>{tokens.modelName}</strong>
+                </div>
               </div>
-              <div>
-                prompt {tokens.promptTokens} · completion {tokens.completionTokens}
-              </div>
-              <div>
-                модель <strong>{tokens.modelName}</strong>
-              </div>
-            </div>
-          ) : null}
+            ) : null}
+            <nav className="page-toggle" role="tablist" aria-label="Разделы">
+              <button
+                type="button"
+                role="tab"
+                aria-label="Чат"
+                aria-selected={activeTab === 'chat'}
+                title="Чат"
+                className={`page-toggle-btn${activeTab === 'chat' ? ' active' : ''}`}
+                onClick={() => setActiveTab('chat')}
+              >
+                <span aria-hidden>💬</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-label="Настройки"
+                aria-selected={activeTab === 'settings'}
+                title="Настройки"
+                className={`page-toggle-btn${activeTab === 'settings' ? ' active' : ''}`}
+                onClick={() => setActiveTab('settings')}
+              >
+                <span aria-hidden>⚙</span>
+              </button>
+            </nav>
+          </div>
         </div>
-        <nav className="app-tabs" role="tablist" aria-label="Разделы">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'chat'}
-            className={`app-tab${activeTab === 'chat' ? ' active' : ''}`}
-            onClick={() => setActiveTab('chat')}
-          >
-            Чат
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'widgets'}
-            className={`app-tab${activeTab === 'widgets' ? ' active' : ''}`}
-            onClick={() => setActiveTab('widgets')}
-          >
-            Виджеты
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'settings'}
-            className={`app-tab${activeTab === 'settings' ? ' active' : ''}`}
-            onClick={() => setActiveTab('settings')}
-          >
-            Настройки
-          </button>
-        </nav>
       </header>
 
       {activeTab === 'chat' ? (
         <div className={`main-stage${showLogs ? ' with-logs' : ''} layout-${chatLayout}`}>
           <div className="phone-wrap">
-            <div className="ring-deco" aria-hidden />
-            <div className="ring-deco sm" aria-hidden />
             <div className="phone">
               <div className="phone-notch">
                 <span />
