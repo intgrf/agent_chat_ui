@@ -148,6 +148,46 @@ const BAR_CHART_WIDGET: WidgetPayload = {
   ],
 }
 
+const OPERATIONS_BY_MERCHANT_WIDGET: WidgetPayload = {
+  buttonText: 'Ещё 2 операции',
+  buttonHideText: 'Скрыть',
+  limitPreviewOperations: 5,
+  merchant: {
+    title: 'Вкусвилл',
+    subtitle: 'Супермаркеты',
+    detail: '250 730 ₽',
+    detailColor: 'success',
+    iconUrl: '',
+    info: '5 операций',
+  },
+  operations: [
+    { title: '4 сентября, 13:06', detail: '4 000 ₽', detailColor: 'success' },
+    { title: '4 сентября, 13:06', detail: '4 000 ₽', detailColor: 'success' },
+    { title: '4 сентября, 13:06', detail: '4 000 ₽', detailColor: 'success' },
+    { title: '4 сентября, 13:06', detail: '4 000 ₽', detailColor: 'success' },
+    { title: '4 сентября, 13:06', detail: '4 000 ₽', detailColor: 'success' },
+    { title: '4 сентября, 13:06', detail: '4 000 ₽', detailColor: 'success' },
+  ],
+}
+
+const OPERATIONS_BY_MERCHANT_WITHOUT_TOGGLE_WIDGET: WidgetPayload = {
+  buttonText: 'Ещё операции',
+  buttonHideText: 'Скрыть',
+  limitPreviewOperations: 5,
+  merchant: {
+    title: 'Перекрёсток',
+    subtitle: 'Супермаркеты',
+    detail: '8 400 ₽',
+    detailColor: 'success',
+    iconUrl: '',
+    info: '2 операции',
+  },
+  operations: [
+    { title: '7 сентября, 10:12', detail: '5 100 ₽', detailColor: 'success' },
+    { title: '2 сентября, 18:45', detail: '3 300 ₽', detailColor: 'success' },
+  ],
+}
+
 type ChatPayload =
   | { type: 'message'; user: string; text: string; suggestions: string[]; widget?: WidgetFrame }
   | { type: 'think'; text: string }
@@ -160,6 +200,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function normalizeWidgetName(name: string): string {
   if (name === 'List widget' || name === 'ListWidget' || name === 'ListView') return 'list_view'
   if (name === 'BarChart' || name === 'BarChartWidget' || name === 'bar_chart_widget') return 'bar_chart'
+  if (name === 'OperationsByMerchant' || name === 'OperationsByMerchantWidget' || name === 'operations_by_merchant') {
+    return 'operations_by_merchant'
+  }
   if (
     name === 'OperationList' ||
     name === 'OperationList' ||
@@ -190,6 +233,15 @@ function toWidgetFrame(value: unknown): WidgetFrame | undefined {
   if (Array.isArray(value.items)) {
     return {
       name: 'list_view',
+      arguments: {
+        payload: value,
+      },
+    }
+  }
+
+  if (isRecord(value.merchant) && Array.isArray(value.operations)) {
+    return {
+      name: 'operations_by_merchant',
       arguments: {
         payload: value,
       },
@@ -568,6 +620,7 @@ type OperationListItem = {
   title: string
   subtitle?: string
   detail?: string
+  detailColor?: string
   iconUrl?: string
 }
 
@@ -583,6 +636,7 @@ function toOperationListItems(payload: WidgetPayload): OperationListItem[] {
         title,
         subtitle: stringFromUnknown(rawOperation.subtitle),
         detail: stringFromUnknown(rawOperation.detail),
+        detailColor: stringFromUnknown(rawOperation.detailColor),
         iconUrl: stringFromUnknown(rawOperation.iconUrl),
       },
     ]
@@ -624,6 +678,94 @@ function OperationList({ payload }: { payload: WidgetPayload }) {
               {operation.subtitle ? <span className="list-widget-item-subtitle">{operation.subtitle}</span> : null}
             </span>
             {operation.detail ? <span className="operation-list-detail">{operation.detail}</span> : null}
+          </li>
+        ))}
+      </ul>
+      {canToggle ? (
+        <div className="list-widget-actions">
+          <button type="button" className="list-widget-action" onClick={() => setExpanded((value) => !value)}>
+            {expanded ? buttonHideText : buttonText}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+type MerchantHeader = {
+  title: string
+  subtitle?: string
+  detail?: string
+  detailColor?: string
+  iconUrl?: string
+  info?: string
+}
+
+function getDetailColorClass(color?: string): string {
+  if (color === 'success') return ' success'
+  if (color === 'danger') return ' danger'
+  if (color === 'warning') return ' warning'
+  return ''
+}
+
+function toMerchantHeader(payload: WidgetPayload): MerchantHeader | undefined {
+  if (!isRecord(payload.merchant)) return undefined
+
+  const title = stringFromUnknown(payload.merchant.title)
+  if (!title) return undefined
+
+  return {
+    title,
+    subtitle: stringFromUnknown(payload.merchant.subtitle),
+    detail: stringFromUnknown(payload.merchant.detail),
+    detailColor: stringFromUnknown(payload.merchant.detailColor),
+    iconUrl: stringFromUnknown(payload.merchant.iconUrl),
+    info: stringFromUnknown(payload.merchant.info),
+  }
+}
+
+function OperationsByMerchant({ payload }: { payload: WidgetPayload }) {
+  const [expanded, setExpanded] = useState(false)
+  const merchant = toMerchantHeader(payload)
+  const operations = toOperationListItems(payload)
+  const limitPreviewOperations =
+    typeof payload.limitPreviewOperations === 'number' && payload.limitPreviewOperations > 0 ? payload.limitPreviewOperations : operations.length
+  const visibleOperations = expanded ? operations : operations.slice(0, limitPreviewOperations)
+  const canToggle = operations.length > limitPreviewOperations
+  const buttonText = stringFromUnknown(payload.buttonText) ?? 'Показать все'
+  const buttonHideText = stringFromUnknown(payload.buttonHideText) ?? 'Скрыть'
+
+  return (
+    <section className="list-widget operations-by-merchant-widget" aria-label={merchant?.title ?? 'Операции по мерчанту'}>
+      {merchant ? (
+        <div className="merchant-summary">
+          {merchant.iconUrl ? (
+            <img className="merchant-summary-icon" src={merchant.iconUrl} alt="" aria-hidden />
+          ) : (
+            <span className="merchant-summary-icon" aria-hidden>
+              {merchant.title.slice(0, 1)}
+            </span>
+          )}
+          <span className="merchant-summary-main">
+            <span className="merchant-summary-title">{merchant.title}</span>
+            {merchant.subtitle ? <span className="list-widget-item-subtitle">{merchant.subtitle}</span> : null}
+          </span>
+          <span className="merchant-summary-side">
+            {merchant.detail ? <span className={`merchant-summary-detail${getDetailColorClass(merchant.detailColor)}`}>{merchant.detail}</span> : null}
+            {merchant.info ? <span className="list-widget-item-subtitle">{merchant.info}</span> : null}
+          </span>
+        </div>
+      ) : null}
+      <ul className="operation-list-items operations-by-merchant-items">
+        {visibleOperations.map((operation) => (
+          <li key={operation.key} className="operations-by-merchant-item">
+            <span className="operation-list-main">
+              <span>{operation.title}</span>
+              {operation.subtitle ? <span className="list-widget-item-subtitle">{operation.subtitle}</span> : null}
+            </span>
+            {operation.detail ? (
+              <span className={`operation-list-detail${getDetailColorClass(operation.detailColor)}`}>{operation.detail}</span>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -720,6 +862,8 @@ function WidgetRenderer({ widget, onAction }: { widget: WidgetFrame; onAction?: 
   switch (widget.name) {
     case 'list_view':
       return <ListView items={[]} payload={widget.arguments.payload} onAction={onAction} />
+    case 'operations_by_merchant':
+      return <OperationsByMerchant payload={widget.arguments.payload} />
     case 'operation_list_widget':
       return <OperationList payload={widget.arguments.payload} />
     case 'bar_chart':
@@ -1206,6 +1350,20 @@ export default function App() {
             widget={{
               name: 'operation_list_widget',
               arguments: { version: 1, payload: OPERATION_LIST_WIDGET },
+            }}
+          />
+
+          <WidgetRenderer
+            widget={{
+              name: 'operations_by_merchant',
+              arguments: { version: 1, payload: OPERATIONS_BY_MERCHANT_WIDGET },
+            }}
+          />
+
+          <WidgetRenderer
+            widget={{
+              name: 'operations_by_merchant',
+              arguments: { version: 1, payload: OPERATIONS_BY_MERCHANT_WITHOUT_TOGGLE_WIDGET },
             }}
           />
 
