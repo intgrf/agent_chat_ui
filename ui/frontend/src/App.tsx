@@ -299,49 +299,66 @@ function suggestionsToWidget(suggestions: string[]): WidgetFrame | undefined {
   }
 }
 
-function parseChatFrame(raw: string): ChatPayload {
-  try {
-    const j = JSON.parse(raw) as Record<string, unknown>
-    if (j.type === 'status' && typeof j.text === 'string') {
-      return { type: 'status', text: j.text }
+function parseStructuredChatFrame(value: unknown): ChatPayload | undefined {
+  if (typeof value === 'string') {
+    try {
+      return parseStructuredChatFrame(JSON.parse(value) as unknown)
+    } catch {
+      return undefined
     }
-    if (j.type === 'think') {
-      const content = typeof j.content === 'string' ? j.content : typeof j.text === 'string' ? j.text : ''
-      if (content) {
-        const title = typeof j.title === 'string' ? j.title : typeof j.titile === 'string' ? j.titile : 'Reasoning'
-        return {
-          type: 'think',
-          title: title.trim() ? title : 'Reasoning',
-          content,
-        }
+  }
+
+  if (!isRecord(value)) return undefined
+
+  const j = value
+  if (j.type === 'status' && typeof j.text === 'string') {
+    return { type: 'status', text: j.text }
+  }
+  if (j.type === 'think') {
+    const content = typeof j.content === 'string' ? j.content : typeof j.text === 'string' ? j.text : ''
+    if (content) {
+      const title = typeof j.title === 'string' ? j.title : typeof j.titile === 'string' ? j.titile : 'Reasoning'
+      return {
+        type: 'think',
+        title: title.trim() ? title : 'Reasoning',
+        content,
       }
     }
-    if (j.type === 'message' && typeof j.user === 'string' && typeof j.text === 'string') {
-      const suggestions = Array.isArray(j.suggestions)
-        ? (j.suggestions as unknown[]).filter((x): x is string => typeof x === 'string')
-        : []
-      const widget = toWidgetFrame(j.widget)
-      const suggestionWidget = suggestionsToWidget(suggestions)
-      const widgets = [
-        ...toWidgetFrames(j.widgets),
-        ...(widget ? [widget] : []),
-        ...(suggestionWidget ? [suggestionWidget] : []),
-      ]
-      return { type: 'message', user: j.user, text: j.text, widgets }
-    }
-    const widget = toWidgetFrame(j)
-    if (widget) {
-      return { type: 'message', user: 'Agent', text: '', widgets: [widget] }
-    }
-  } catch {
-    /* legacy */
   }
+  if (j.type === 'message' && typeof j.user === 'string' && typeof j.text === 'string') {
+    const suggestions = Array.isArray(j.suggestions)
+      ? (j.suggestions as unknown[]).filter((x): x is string => typeof x === 'string')
+      : []
+    const widget = toWidgetFrame(j.widget)
+    const suggestionWidget = suggestionsToWidget(suggestions)
+    const widgets = [
+      ...toWidgetFrames(j.widgets),
+      ...(widget ? [widget] : []),
+      ...(suggestionWidget ? [suggestionWidget] : []),
+    ]
+    return { type: 'message', user: j.user, text: j.text, widgets }
+  }
+  const widget = toWidgetFrame(j)
+  if (widget) {
+    return { type: 'message', user: 'Agent', text: '', widgets: [widget] }
+  }
+
+  return undefined
+}
+
+function parseChatFrame(raw: string): ChatPayload {
+  const structuredPayload = parseStructuredChatFrame(raw)
+  if (structuredPayload) return structuredPayload
+
   const statusMatch = raw.match(/^\s*\[status\]\s*(.+)$/i)
   if (statusMatch?.[1]) {
     return { type: 'status', text: statusMatch[1].trim() }
   }
   const colon = raw.indexOf(':')
   if (colon > 0) {
+    const nestedPayload = parseStructuredChatFrame(raw.slice(colon + 1).trim())
+    if (nestedPayload) return nestedPayload
+
     return {
       type: 'message',
       user: raw.slice(0, colon).trim(),
@@ -438,6 +455,10 @@ function readStoredLayout(): ChatLayout {
 }
 
 const UI_THEMES: UiTheme[] = ['forest', 'ocean', 'dusk', 'ember']
+
+function emitDemoNetwork(detail: { channel: 'chat' | 'log'; direction: 'in' | 'out' | 'open' | 'close'; data?: string }) {
+  window.dispatchEvent(new CustomEvent('demo:network', { detail }))
+}
 
 function readStoredTheme(): UiTheme {
   try {
@@ -641,6 +662,7 @@ function ListView({ title, subtitle, items, payload, onAction }: ListViewProps) 
                   <button
                     type="button"
                     className="list-widget-cell left"
+                    data-demo-id={`list-cell-${item.key}`}
                     disabled={!item.clickable}
                     onClick={item.action ? () => handleAction(item.action!) : undefined}
                   >
@@ -662,7 +684,13 @@ function ListView({ title, subtitle, items, payload, onAction }: ListViewProps) 
       {globalActions.length > 0 ? (
         <div className="list-widget-actions">
           {globalActions.map((action) => (
-            <button key={`${action.type}-${action.text}`} type="button" className="list-widget-action" onClick={() => handleAction(action)}>
+            <button
+              key={`${action.type}-${action.text}`}
+              type="button"
+              className="list-widget-action"
+              data-demo-id={`list-action-${action.type}-${action.text}`}
+              onClick={() => handleAction(action)}
+            >
               {action.label ?? action.text}
             </button>
           ))}
@@ -740,7 +768,7 @@ function OperationList({ payload }: { payload: WidgetPayload }) {
       </ul>
       {canToggle ? (
         <div className="list-widget-actions">
-          <button type="button" className="list-widget-action" onClick={() => setExpanded((value) => !value)}>
+          <button type="button" className="list-widget-action" data-demo-id="operation-list-toggle" onClick={() => setExpanded((value) => !value)}>
             {expanded ? buttonHideText : buttonText}
           </button>
         </div>
@@ -828,7 +856,7 @@ function OperationsByMerchant({ payload }: { payload: WidgetPayload }) {
       </ul>
       {canToggle ? (
         <div className="list-widget-actions">
-          <button type="button" className="list-widget-action" onClick={() => setExpanded((value) => !value)}>
+          <button type="button" className="list-widget-action" data-demo-id="merchant-operations-toggle" onClick={() => setExpanded((value) => !value)}>
             {expanded ? buttonHideText : buttonText}
           </button>
         </div>
@@ -930,7 +958,7 @@ function SuggestionButtonList({ payload, onAction }: { payload: WidgetPayload; o
     <section className="suggestion-button-list" aria-label="Спросить ещё">
       <div className="suggest-scroll">
         {buttons.map((button) => (
-          <button key={button.key} type="button" className="suggest-chip" onClick={() => onAction?.(button.text)}>
+          <button key={button.key} type="button" className="suggest-chip" data-demo-id={`suggest-${button.key}`} onClick={() => onAction?.(button.text)}>
             {button.text}
           </button>
         ))}
@@ -1008,10 +1036,10 @@ export default function App() {
   const scrollToBottom = useCallback(() => {
     const el = messagesScrollRef.current
     if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    el.scrollTop = el.scrollHeight
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     scrollToBottom()
   }, [messages, scrollToBottom])
 
@@ -1130,6 +1158,7 @@ export default function App() {
     const chat = new WebSocket(`${proto}://${host}/chat`)
     chatRef.current = chat
     chat.onopen = () => {
+      emitDemoNetwork({ channel: 'chat', direction: 'open' })
       setChatConnected(true)
       setMessages((p) => [
         ...p,
@@ -1143,8 +1172,15 @@ export default function App() {
         },
       ])
     }
-    chat.onclose = () => setChatConnected(false)
-    chat.onmessage = (ev) => handleIncoming(String(ev.data))
+    chat.onclose = () => {
+      emitDemoNetwork({ channel: 'chat', direction: 'close' })
+      setChatConnected(false)
+    }
+    chat.onmessage = (ev) => {
+      const data = String(ev.data)
+      emitDemoNetwork({ channel: 'chat', direction: 'in', data })
+      handleIncoming(data)
+    }
     return () => chat.close()
   }, [handleIncoming])
 
@@ -1154,6 +1190,7 @@ export default function App() {
     const log = new WebSocket(`${proto}://${host}/log`)
     log.onmessage = (ev) => {
       const logEntry = String(ev.data)
+      emitDemoNetwork({ channel: 'log', direction: 'in', data: logEntry })
       if (logEntry.toLowerCase().includes('llm')) {
         const patch = parseLlmLog(logEntry)
         if (patch) {
@@ -1182,6 +1219,7 @@ export default function App() {
     const text = input.trim()
     if (!text || !chatRef.current || chatRef.current.readyState !== WebSocket.OPEN) return
     appendUserMessage(text)
+    emitDemoNetwork({ channel: 'chat', direction: 'out', data: text })
     chatRef.current.send(text)
     setInput('')
   }, [input, appendUserMessage])
@@ -1190,6 +1228,7 @@ export default function App() {
     (text: string) => {
       if (!chatRef.current || chatRef.current.readyState !== WebSocket.OPEN) return
       appendUserMessage(text)
+      emitDemoNetwork({ channel: 'chat', direction: 'out', data: text })
       chatRef.current.send(text)
     },
     [appendUserMessage],
@@ -1261,6 +1300,7 @@ export default function App() {
                 type="button"
                 role="tab"
                 aria-label="Чат"
+                data-demo-id="tab-chat"
                 aria-selected={activeTab === 'chat'}
                 title="Чат"
                 className={`page-toggle-btn${activeTab === 'chat' ? ' active' : ''}`}
@@ -1272,6 +1312,7 @@ export default function App() {
                 type="button"
                 role="tab"
                 aria-label="Виджеты"
+                data-demo-id="tab-widgets"
                 aria-selected={activeTab === 'widgets'}
                 title="Виджеты"
                 className={`page-toggle-btn${activeTab === 'widgets' ? ' active' : ''}`}
@@ -1283,6 +1324,7 @@ export default function App() {
                 type="button"
                 role="tab"
                 aria-label="Настройки"
+                data-demo-id="tab-settings"
                 aria-selected={activeTab === 'settings'}
                 title="Настройки"
                 className={`page-toggle-btn${activeTab === 'settings' ? ' active' : ''}`}
@@ -1307,7 +1349,7 @@ export default function App() {
                 <div className={`status-dot${chatConnected ? '' : ' off'}`} title={chatConnected ? 'online' : 'offline'} />
               </div>
 
-              <div className="messages" ref={messagesScrollRef}>
+              <div className="messages" data-demo-id="messages" ref={messagesScrollRef}>
                 {messages.map((m) => (
                   <div key={m.id} className={`bubble ${m.role}${m.role === 'reasoning' && m.collapsed ? ' collapsed' : ''}`}>
                     {m.role === 'status' ? (
@@ -1353,6 +1395,7 @@ export default function App() {
 
               <div className="input-row">
                 <input
+                  data-demo-id="chat-input"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   placeholder="Сообщение…"
@@ -1360,7 +1403,7 @@ export default function App() {
                     if (e.key === 'Enter') send()
                   }}
                 />
-                <button type="button" className="send-btn" disabled={!chatConnected} onClick={send} aria-label="Отправить">
+                <button type="button" className="send-btn" data-demo-id="chat-send" disabled={!chatConnected} onClick={send} aria-label="Отправить">
                   →
                 </button>
               </div>
@@ -1375,7 +1418,7 @@ export default function App() {
                   Очистить
                 </button>
               </div>
-              <div className="logs-panel-body" ref={logsScrollRef}>
+              <div className="logs-panel-body" data-demo-id="logs-body" ref={logsScrollRef}>
                 {logLines.length === 0 ? (
                   <p className="logs-empty">Пока нет записей. Логи появятся здесь по мере работы сервера.</p>
                 ) : (
@@ -1481,6 +1524,7 @@ export default function App() {
               <button
                 type="button"
                 className={`theme-option${uiTheme === 'forest' ? ' active' : ''}`}
+                data-demo-id="theme-forest"
                 aria-pressed={uiTheme === 'forest'}
                 onClick={() => persistUiTheme('forest')}
               >
@@ -1491,6 +1535,7 @@ export default function App() {
               <button
                 type="button"
                 className={`theme-option${uiTheme === 'ocean' ? ' active' : ''}`}
+                data-demo-id="theme-ocean"
                 aria-pressed={uiTheme === 'ocean'}
                 onClick={() => persistUiTheme('ocean')}
               >
@@ -1501,6 +1546,7 @@ export default function App() {
               <button
                 type="button"
                 className={`theme-option${uiTheme === 'dusk' ? ' active' : ''}`}
+                data-demo-id="theme-dusk"
                 aria-pressed={uiTheme === 'dusk'}
                 onClick={() => persistUiTheme('dusk')}
               >
@@ -1511,6 +1557,7 @@ export default function App() {
               <button
                 type="button"
                 className={`theme-option${uiTheme === 'ember' ? ' active' : ''}`}
+                data-demo-id="theme-ember"
                 aria-pressed={uiTheme === 'ember'}
                 onClick={() => persistUiTheme('ember')}
               >
@@ -1530,6 +1577,7 @@ export default function App() {
               type="button"
               role="switch"
               aria-checked={showLogs}
+              data-demo-id="toggle-logs"
               className={`switch${showLogs ? ' on' : ''}`}
               onClick={() => setLogsEnabled(!showLogs)}
             >
@@ -1546,6 +1594,7 @@ export default function App() {
               type="button"
               role="switch"
               aria-checked={showTokens}
+              data-demo-id="toggle-tokens"
               className={`switch${showTokens ? ' on' : ''}`}
               onClick={() => setTokensPanelEnabled(!showTokens)}
             >
@@ -1564,6 +1613,7 @@ export default function App() {
               <button
                 type="button"
                 className={chatLayout === 'mobile' ? 'active' : ''}
+                data-demo-id="layout-mobile"
                 aria-pressed={chatLayout === 'mobile'}
                 onClick={() => persistChatLayout('mobile')}
               >
@@ -1572,6 +1622,7 @@ export default function App() {
               <button
                 type="button"
                 className={chatLayout === 'desktop' ? 'active' : ''}
+                data-demo-id="layout-desktop"
                 aria-pressed={chatLayout === 'desktop'}
                 onClick={() => persistChatLayout('desktop')}
               >

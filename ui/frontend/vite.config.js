@@ -4,14 +4,12 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  publicDir: 'static',
+  publicDir: 'public',
   server: {
     port: 5173,
-    // Прокси к вашему бэкенду (раскомментируйте и настройте при необходимости):
     proxy: {
       '/chat': { target: 'ws://localhost:5000', ws: true },
       '/log':  { target: 'ws://localhost:5000', ws: true },
-    //   '/api':  { target: 'http://localhost:5000' },
     }
   },
   build: {
