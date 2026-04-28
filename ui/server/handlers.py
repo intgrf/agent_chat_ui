@@ -39,7 +39,7 @@ class WebSocketHandler(logging.Handler):
 
     def emit(self, record):
         print(f"Trying to send log: {record.msg}")
-        if record.module in ("(chat)", "(think)"):
+        if record.module in ("(chat)", "(think)", "(status)"):
             asyncio.run_coroutine_threadsafe(
                 self.broadcast_chat(record.msg),
                 self.loop

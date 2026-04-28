@@ -176,6 +176,29 @@ class ChatLogger:
         )
         self._logger.handle(record)
 
+    def status(self, text: str):
+        """Статусное сообщение для UI во время подготовки ответа."""
+        if not self._check_handler():
+            return
+
+        payload = json.dumps(
+            {
+                "type": "status",
+                "text": text,
+            },
+            ensure_ascii=False,
+        )
+        record = self._logger.makeRecord(
+            self._logger.name,
+            logging.INFO,
+            "(status)",
+            0,
+            payload,
+            None,
+            None,
+        )
+        self._logger.handle(record)
+
     def log_llm(self, username: str, msg):
         """Специальные сообщения в чат — принимает AIMessage, dict или str"""
         if not self._check_handler():
