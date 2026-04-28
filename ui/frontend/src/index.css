@@ -299,6 +299,82 @@ body {
   min-width: 0;
 }
 
+.demo-recorder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(44vw, 420px);
+  padding: 4px 6px 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke-soft);
+  background: color-mix(in srgb, var(--surface-2) 68%, transparent);
+  backdrop-filter: blur(10px) saturate(115%);
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+html.demo-video-clean .demo-recorder {
+  display: none !important;
+}
+
+.demo-recorder.recording {
+  border-color: var(--t-35);
+  box-shadow: 0 0 0 1px var(--t-12), 0 10px 30px rgba(0, 0, 0, 0.22);
+}
+
+.demo-recorder-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.demo-recorder-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.demo-recorder-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.demo-recorder-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.demo-recorder-btn.stop {
+  background: color-mix(in srgb, #ff6b6b 18%, transparent);
+  color: #ff9a9a;
+}
+
+.demo-recorder-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.demo-recorder-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
 .page-toggle {
   display: flex;
   gap: 3px;
@@ -1806,7 +1882,8 @@ body {
 
 @media (max-width: 720px) {
   .app-header-row {
-    align-items: center;
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .brand-sub {
@@ -1814,7 +1891,17 @@ body {
   }
 
   .header-actions {
+    justify-content: space-between;
     gap: 6px;
+  }
+
+  .demo-recorder {
+    flex: 1;
+    max-width: none;
+  }
+
+  .demo-recorder-hint {
+    display: none;
   }
 
   .token-pill {

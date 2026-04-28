@@ -1,6 +1,7 @@
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { DemoRecorder } from './DemoRecorder'
 
 type Role = 'user' | 'agent' | 'system' | 'status' | 'reasoning'
 
@@ -1241,6 +1242,7 @@ export default function App() {
             <span className="brand-sub">Assistant</span>
           </div>
           <div className="header-actions">
+            <DemoRecorder />
             {showTokens ? (
               <div className="token-pill">
                 <div>
